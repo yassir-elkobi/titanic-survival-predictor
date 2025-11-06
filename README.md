@@ -12,7 +12,7 @@ This repo is intentionally simple and readable to help newcomers (and busy manag
 
 ### Demo: What happens
 
-1) Data is loaded (your CSV at `static/train.csv`).
+1) Data is loaded (your CSV at `static/titanic_survival.csv`).
 2) We split into train/test and build a preprocessing pipeline.
 3) We train several models and evaluate them:
     - Logistic Regression (L2)
@@ -78,7 +78,7 @@ static/titanic_survival.csv — sample dataset (optional)
 
 ## Bring Your Own Data
 
-Place a CSV at `static/train.csv` with a target column:
+Place a CSV at `static/titanic_survival.csv` with a target column:
 
 - `Survived` (0/1)
 
