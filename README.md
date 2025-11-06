@@ -1,114 +1,95 @@
-# Titanic Survival Predictor with Logistic Regression
+## Titanic Survival Predictor (Flask + scikit-learn)
 
-**Titanic Survival Predictor** is a Flask web application that predicts the survival probability of Titanic passengers
-based on their characteristics. It implements logistic regression _from scratch_ using gradient descent (instead of
-relying on scikit-learn for model training). This project is part of my machine learning journey, aiming to solidify
-understanding of classification algorithms, gradient descent optimization, and end-to-end model deployment.
+An educational, end-to-end classification project showing how different ML models learn to predict Titanic survival. It
+includes:
 
-## Features
+- A clean preprocessing pipeline (imputation, scaling, one-hot encoding)
+- Multiple models trained and compared automatically
+- An ensemble (soft VotingClassifier) to combine strong models
+- A Flask app with UI to predict and view comparison metrics
 
-* **Custom Logistic Regression Implementation**
-* **Batch Gradient Descent Optimization**
-* **L2 Regularization**
-* **Early Stopping on Validation Loss**
-* **K-Fold Cross-Validation**
-* **Comprehensive Evaluation Metrics**
-* **Interactive Visualizations**
-* **Numerical Stability Improvements**
+This repo is intentionally simple and readable to help newcomers (and busy managers) understand how ML fits together.
 
-## Tech Stack and Tools
+### Demo: What happens
 
-* **Python 3**
-* **Flask**
-* **NumPy**
-* **Pandas**
-* **Matplotlib**
-* **tqdm (for progress visualization)**
-* **scikit-learn (for metrics calculation only)**
+1) Data is loaded (your CSV at `static/train.csv`).
+2) We split into train/test and build a preprocessing pipeline.
+3) We train several models and evaluate them:
+    - Logistic Regression (L2)
+    - Logistic Regression (L1)
+    - Random Forest
+    - Gradient Boosting
+    - Ensemble (Voting over top performers)
+4) We compute metrics (Accuracy, Precision, Recall, F1, AUC) and pick the best model.
+5) The best model is saved to `model.joblib`. A full report is saved to `metrics.json`.
+6) The Flask app serves:
+    - `/` — prediction form
+    - `/compare` — comparison table of models
+    - `/train` — retrain and refresh metrics
+    - `/metrics` — raw JSON of results
 
-## Best Model Configuration
+## Quickstart
 
-Through experimentation, the following configuration was found to produce the best results for the Titanic survival
-prediction task:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-* **Algorithm:** Logistic Regression with Batch Gradient Descent
-* **Regularization:** L2 (Ridge) to prevent overfitting
-* **Cross-Validation:** K-Fold (k=5) for robust model evaluation
-* **Early Stopping:** Enabled with patience=10 for optimal training duration
-* **Gradient Descent Parameters:** Learning Rate α = 0.05, Number of Iterations = 2000
-
-## Dataset Summary
-
-The model is trained on the famous Titanic dataset, which contains information about passengers aboard the RMS Titanic,
-including whether they survived the ship's sinking. The dataset includes about 891 passengers with the following key
-features:
-
-* **Pclass:** Passenger class (1st, 2nd, or 3rd)
-* **Sex:** Gender of the passenger
-* **Age:** Age of the passenger
-* **SibSp:** Number of siblings/spouses aboard
-* **Parch:** Number of parents/children aboard
-* **Fare:** Passenger fare
-* **Embarked:** Port of embarkation (C = Cherbourg, Q = Queenstown, S = Southampton)
-
-The **target** variable is **Survived** (0 = No, 1 = Yes), indicating whether the passenger survived the disaster.
-
-## Project Structure
-
-```
-├── app.py                 # Main Flask application
-├── model.py               # Logistic regression model implementation
-├── preprocessing.py       # Data loading and preprocessing functions
-├── utils.py               # Evaluation metrics and visualization utilities
-├── requirements.txt       # Project dependencies
-├── static/                # Static files (CSS, data files)
-│   └── train.csv          # Titanic dataset
-└── templates/             # HTML templates
-    ├── index.html         # Settings page
-    └── results.html       # Results visualization page
+# Optional: put your dataset at static/titanic_survival.csv with target column 'Survived'
+python app.py  # this will train on first run if model is missing
+# Open http://127.0.0.1:5000
 ```
 
-## How to Run the App Locally
+## Using the API
 
-1. **Clone the repository** or download the project source code to your local machine.
-2. **Create a virtual environment:**
-   ```
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
-3. **Install Python dependencies:**
-   ```
-   pip install -r requirements.txt
-   ```
-4. **Run the Flask application:**
-   ```
-   python app.py
-   ```
-5. **Open the web app in your browser:** Navigate to http://127.0.0.1:5000/
+- Predict via JSON:
 
-## Usage
+```bash
+curl -X POST http://127.0.0.1:5000/predict \
+  -H 'Content-Type: application/json' \
+  -d '{"Pclass":3,"Sex":"male","Age":29,"SibSp":0,"Parch":0,"Fare":7.25,"Embarked":"S"}'
+```
 
-1. Adjust model parameters on the settings page:
-    - Learning rate and number of iterations
-    - L2 regularization strength
-    - Early stopping settings
-    - K-fold cross-validation options
+- Compare models (JSON): `GET /metrics`
 
-2. Click "Train & Evaluate" to build and analyze the model
+## Educational Notes
 
-3. View comprehensive results:
-    - Training and validation metrics
-    - Learning curves
-    - Confusion matrix
-    - ROC curve
-    - Cross-validation performance (if enabled)
+- Why multiple models? Each algorithm has different bias/variance trade-offs. We compare them to learn which works best
+  for this data.
+- Why a pipeline? Consistent preprocessing avoids data leakage and keeps code maintainable.
+- What metrics mean:
+    - Accuracy: overall correctness
+    - Precision: percent of predicted positives that are correct
+    - Recall: percent of actual positives that are found
+    - F1: balance between precision and recall
+    - AUC: ability to discriminate between classes
+- Ensemble: A soft VotingClassifier averaging strong models often performs as well as or better than a single best
+  model.
 
-## Learning Goals
+## Project Layout
 
-This project was developed as part of my journey to learn and demonstrate machine learning engineering skills. The
-primary learning goal was to **implement logistic regression from scratch** and integrate it into a full web
-application.
+```
+app.py          — Flask app (predict, compare, retrain, metrics)
+train.py        — training and comparison logic; saves model.joblib and metrics.json
+templates/      — UI pages (index.html, compare.html)
+requirements.txt — Python dependencies
+static/titanic_survival.csv — sample dataset (optional)
+```
 
-**Note:** This README is written to be clear and informative for any new visitor (or recruiter) checking out the
-project. It highlights the project’s purpose, capabilities, technical implementation, and the learning outcomes
-associated with it.
+## Bring Your Own Data
+
+Place a CSV at `static/train.csv` with a target column:
+
+- `Survived` (0/1)
+
+Feature columns can include `Pclass`, `Sex`, `Age`, `SibSp`, `Parch`, `Fare`, `Embarked`. The code will infer types and
+handle missing values.
+
+## Reproducibility
+
+We fix `random_state=42` and use a consistent test split (`test_size=0.25`). You can change these in
+`train_and_compare()` in `train.py`.
+
+## License
+
+MIT

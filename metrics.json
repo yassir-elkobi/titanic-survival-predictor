@@ -1,0 +1,72 @@
+{
+  "dataset": {
+    "path": "static/titanic_survival.csv",
+    "n_rows": 1309,
+    "n_features": 6,
+    "target": "Survived",
+    "numeric_features": [
+      "Pclass",
+      "Sex",
+      "Age",
+      "Parch",
+      "Fare",
+      "Embarked"
+    ],
+    "categorical_features": []
+  },
+  "split": {
+    "test_size": 0.25,
+    "random_state": 42
+  },
+  "metrics": {
+    "LogReg_L2": {
+      "accuracy": 0.7560975609756098,
+      "precision": 0.6458333333333334,
+      "recall": 0.32978723404255317,
+      "f1": 0.43661971830985913,
+      "auc": 0.7984860883797055,
+      "fit_time_s": 0.00960540771484375,
+      "best": false
+    },
+    "LogReg_L1": {
+      "accuracy": 0.75,
+      "precision": 0.625,
+      "recall": 0.3191489361702128,
+      "f1": 0.4225352112676056,
+      "auc": 0.797895071831242,
+      "fit_time_s": 0.007193803787231445,
+      "best": false
+    },
+    "RandomForest": {
+      "accuracy": 0.7317073170731707,
+      "precision": 0.5357142857142857,
+      "recall": 0.4787234042553192,
+      "f1": 0.5056179775280899,
+      "auc": 0.7564557192216765,
+      "fit_time_s": 0.5057101249694824,
+      "best": false
+    },
+    "GradientBoosting": {
+      "accuracy": 0.7774390243902439,
+      "precision": 0.6721311475409836,
+      "recall": 0.43617021276595747,
+      "f1": 0.5290322580645161,
+      "auc": 0.8143753409710858,
+      "fit_time_s": 0.11827349662780762,
+      "best": false
+    },
+    "VotingClassifier": {
+      "accuracy": 0.7682926829268293,
+      "precision": 0.68,
+      "recall": 0.3617021276595745,
+      "f1": 0.4722222222222222,
+      "auc": 0.8145799236224768,
+      "fit_time_s": 0.12398982048034668,
+      "best": true
+    }
+  },
+  "best_model": {
+    "name": "VotingClassifier",
+    "criterion": "max_auc_then_max_f1"
+  }
+}

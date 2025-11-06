@@ -1,201 +1,123 @@
+import json
 import os
-import numpy as np
+from typing import Dict, Optional
+import joblib
 import pandas as pd
-from flask import Flask, render_template, request
-
-from model import LogisticRegression
-from utils import (
-    compute_metrics,
-    plot_confusion_matrix,
-    plot_roc_curve,
-    plot_cost_history,
-    plot_kfold_results
-)
+from flask import Flask, jsonify, render_template, request
+from train import ensure_model, train_and_compare, METRICS_PATH, MODEL_PATH
 
 app = Flask(__name__)
 
+_model_cache = None  # lazy-loaded trained pipeline
+_metrics_cache: Optional[Dict] = None
 
-def load_and_preprocess(path):
+
+def _load_metrics() -> Optional[Dict]:
+    global _metrics_cache
+    if _metrics_cache is not None:
+        return _metrics_cache
+    if os.path.exists(METRICS_PATH):
+        with open(METRICS_PATH, "r", encoding="utf-8") as f:
+            _metrics_cache = json.load(f)
+            return _metrics_cache
+    return None
+
+
+def _load_or_train() -> Dict:
     """
-    Read CSV at `path`, coerce target to 'Survived', select exactly the
-    eight fields (fixing 'sibsp'), then fill, one‐hot, scale, and bias-add.
-    Returns:
-      X, y, feature_names
+    Ensure artifacts exist (train on first run), warm metrics cache.
     """
-    import pandas as pd
-    import numpy as np
-
-    df = pd.read_csv(path)
-
-    # 1) Rename target and sibsp
-    if '2urvived' in df.columns:
-        df = df.rename(columns={'2urvived': 'Survived'})
-    if 'sibsp' in df.columns:
-        df = df.rename(columns={'sibsp': 'SibSp'})
-
-    # 2) Keep only the eight columns
-    required = ['Survived', 'Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare', 'Embarked']
-    df = df[required]
-
-    # 3) Fill missing
-    df['Age'] = df['Age'].fillna(df['Age'].median())
-    df['Fare'] = df['Fare'].fillna(df['Fare'].median())
-    df['Embarked'] = df['Embarked'].fillna('S')
-
-    # 4) One-hot Embarked, binary Sex
-    emb = pd.get_dummies(df['Embarked'], prefix='Emb', drop_first=True)
-    df = pd.concat([df.drop('Embarked', axis=1), emb], axis=1)
-    df['Sex'] = df['Sex'].astype(int)  # already 0/1
-
-    # 5) Split X / y
-    y = df['Survived'].values.reshape(-1, 1)
-    X = df.drop('Survived', axis=1).values.astype(float)
-
-    # 6) Standardize all features
-    mu = X.mean(axis=0)
-    sigma = X.std(axis=0)
-    sigma[sigma == 0] = 1.0
-    X = (X - mu) / sigma
-
-    # 7) Add bias column
-    bias = np.ones((X.shape[0], 1))
-    X = np.hstack([bias, X])
-
-    # Final feature names (bias + the rest)
-    feature_names = ['Intercept'] + list(df.drop('Survived', axis=1).columns)
-    return X, y, feature_names
+    global _metrics_cache
+    metrics = ensure_model()
+    _metrics_cache = metrics
+    return metrics
 
 
-@app.route("/", methods=["GET", "POST"])
+def _load_model():
+    global _model_cache
+    if _model_cache is None:
+        if not os.path.exists(MODEL_PATH):
+            _load_or_train()
+        _model_cache = joblib.load(MODEL_PATH)
+        # If legacy regression artifact is loaded (no predict_proba), retrain to classification
+        if not hasattr(_model_cache, "predict_proba"):
+            train_and_compare()
+            _model_cache = joblib.load(MODEL_PATH)
+    return _model_cache
+
+
+@app.route("/", methods=["GET"])
 def index():
-    if request.method == "POST":
-        # Hyperparameters from form
-        lr = float(request.form.get("learning_rate", 0.01))
-        max_iter = int(request.form.get("max_iterations", 1000))
-        lambda_ = float(request.form.get("lambda_", 0.0))
-        tolerance = float(request.form.get("tolerance", 1e-4))
-        patience = int(request.form.get("patience", 5))
-        use_kfold = request.form.get("use_kfold") == "on"
-        n_splits = int(request.form.get("n_splits", 5))
+    metrics = _load_metrics()
+    best_model_name = metrics["best_model"]["name"] if metrics else None
+    dataset = metrics["dataset"] if metrics else None
+    return render_template("index.html", best_model=best_model_name, dataset=dataset)
 
-        # Load & preprocess
-        data_path = os.path.join("static", "train.csv")
-        X, y, feature_names = load_and_preprocess(data_path)
 
-        if use_kfold:
-            # Manual K-Fold split
-            idx = np.random.RandomState(42).permutation(len(y))
-            fold_size = len(y) // n_splits
-            fold_results = []
+@app.route("/predict", methods=["POST"])
+def predict():
+    model = _load_model()
+    metrics = _load_metrics() or _load_or_train()
 
-            for fold in range(n_splits):
-                start = fold * fold_size
-                if fold == n_splits - 1:
-                    val_idx = idx[start:]
-                else:
-                    val_idx = idx[start:start + fold_size]
-                tr_idx = np.setdiff1d(idx, val_idx)
+    # Expected raw feature columns (pre-preprocessing)
+    numeric_cols = metrics["dataset"]["numeric_features"]
+    categorical_cols = metrics["dataset"]["categorical_features"]
+    expected_cols = numeric_cols + categorical_cols
 
-                X_tr, y_tr = X[tr_idx], y[tr_idx]
-                X_val, y_val = X[val_idx], y[val_idx]
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+    else:
+        # Accept form submissions as well
+        payload = {k: v for k, v in request.form.items()}
 
-                model = LogisticRegression(
-                    learning_rate=lr,
-                    max_iterations=max_iter,
-                    lambda_=lambda_,
-                    tolerance=tolerance,
-                    patience=patience,
-                    verbose=False
-                )
-                model.fit(X_tr, y_tr, X_val, y_val)
+    # Build a single-row DataFrame with all expected columns
+    row = {col: payload.get(col) for col in expected_cols}
+    # Coerce numeric features
+    for c in numeric_cols:
+        val = row.get(c)
+        if val is None or val == "":
+            continue
+        try:
+            row[c] = float(val)
+        except (TypeError, ValueError):
+            # Let imputer handle NaN; leave as None
+            row[c] = None
+    df = pd.DataFrame([row])
 
-                # Metrics
-                train_p = model.predict(X_tr)
-                train_pr = model.predict_proba(X_tr)
-                val_p = model.predict(X_val)
-                val_pr = model.predict_proba(X_val)
+    # Use classifier probability for the positive class
+    prob = float(model.predict_proba(df)[0, 1])
+    label = int(prob >= 0.5)
+    result = {"predicted_score": prob, "predicted_label": label}
 
-                tm = compute_metrics(y_tr, train_p, train_pr)
-                vm = compute_metrics(y_val, val_p, val_pr)
+    if request.is_json:
+        return jsonify(result)
+    # For form submits, just return JSON for simplicity
+    return jsonify(result)
 
-                fold_results.append({
-                    "fold": fold + 1,
-                    "model": model,
-                    "train_metrics": tm,
-                    "val_metrics": vm,
-                    "train_costs": model.cost_history,
-                    "val_costs": model.val_cost_history,
-                    "y_val": y_val,
-                    "val_preds": val_p,
-                    "val_probs": val_pr
-                })
 
-            # Pick best fold
-            best = max(fold_results, key=lambda x: x["val_metrics"]["accuracy"])
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    metrics = _load_metrics()
+    if not metrics:
+        return jsonify({"error": "No metrics available"}), 404
+    return jsonify(metrics)
 
-            # Plots
-            cost_plot = plot_cost_history(best["train_costs"], best["val_costs"])
-            cm_plot = plot_confusion_matrix(best["y_val"], best["val_preds"])
-            roc_plot, _ = plot_roc_curve(best["y_val"], best["val_probs"])
-            kf_plot = plot_kfold_results([
-                {"fold": r["fold"], "accuracy": r["val_metrics"]["accuracy"]}
-                for r in fold_results
-            ])
 
-            results = {
-                "mode": "K-Fold CV",
-                "n_splits": n_splits,
-                "best_fold": best["fold"],
-                "train_metrics": best["train_metrics"],
-                "val_metrics": best["val_metrics"],
-                "cost_plot": cost_plot,
-                "cm_plot": cm_plot,
-                "roc_plot": roc_plot,
-                "kfold_plot": kf_plot
-            }
+@app.route("/train", methods=["POST", "GET"])
+def train():
+    # Allow GET to ease UI button usage; still non-interactive
+    metrics = train_and_compare()
+    # Reset caches
+    global _model_cache, _metrics_cache
+    _model_cache = None
+    _metrics_cache = metrics
+    return jsonify({"status": "ok", "best_model": metrics["best_model"], "metrics": metrics["metrics"]})
 
-        else:
-            # Simple 80/20 split
-            rng = np.random.RandomState(42)
-            perm = rng.permutation(len(y))
-            cut = int(0.8 * len(y))
-            tr_idx, val_idx = perm[:cut], perm[cut:]
 
-            X_tr, y_tr = X[tr_idx], y[tr_idx]
-            X_val, y_val = X[val_idx], y[val_idx]
-
-            model = LogisticRegression(
-                learning_rate=lr,
-                max_iterations=max_iter,
-                lambda_=lambda_,
-                tolerance=tolerance,
-                patience=patience,
-                verbose=False
-            )
-            model.fit(X_tr, y_tr, X_val, y_val)
-
-            train_p, train_pr = model.predict(X_tr), model.predict_proba(X_tr)
-            val_p, val_pr = model.predict(X_val), model.predict_proba(X_val)
-
-            tm = compute_metrics(y_tr, train_p, train_pr)
-            vm = compute_metrics(y_val, val_p, val_pr)
-
-            cost_plot = plot_cost_history(model.cost_history, model.val_cost_history)
-            cm_plot = plot_confusion_matrix(y_val, val_p)
-            roc_plot, _ = plot_roc_curve(y_val, val_pr)
-
-            results = {
-                "mode": "Train/Val Split",
-                "train_metrics": tm,
-                "val_metrics": vm,
-                "cost_plot": cost_plot,
-                "cm_plot": cm_plot,
-                "roc_plot": roc_plot
-            }
-
-        return render_template("results.html", results=results)
-
-    return render_template("index.html")
+@app.route("/compare", methods=["GET"])
+def compare():
+    metrics = _load_metrics() or _load_or_train()
+    return render_template("compare.html", metrics=metrics)
 
 
 if __name__ == "__main__":

@@ -4,3 +4,4 @@ Flask>=2.0.0
 matplotlib>=3.4.0
 scikit-learn>=1.0.0
 tqdm>=4.62.0
+joblib>=1.2.0

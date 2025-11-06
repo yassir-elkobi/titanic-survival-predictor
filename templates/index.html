@@ -4,64 +4,130 @@
     <meta charset="utf-8">
     <title>Titanic Survival Predictor</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .card { box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        async function submitPrediction(ev) {
+            ev.preventDefault();
+            const form = ev.target;
+            const data = Object.fromEntries(new FormData(form).entries());
+            try {
+                const res = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const json = await res.json();
+                const box = document.getElementById('result-box');
+                box.className = 'alert ' + (json.predicted_label ? 'alert-success' : 'alert-secondary');
+                box.innerText = `Predicted survival score: ${json.predicted_score.toFixed(3)} - Label: ${json.predicted_label}`;
+                box.hidden = false;
+            } catch (e) {
+                alert('Prediction failed. See console.'); console.error(e);
+            }
+        }
+        async function retrain() {
+            const btn = document.getElementById('retrain-btn');
+            btn.disabled = true; btn.innerText = 'Training...';
+            try {
+                const res = await fetch('/train', {method: 'POST'});
+                const json = await res.json();
+                btn.innerText = 'Retrain Done';
+                setTimeout(()=>{ btn.disabled=false; btn.innerText='Retrain & Refresh Metrics'; }, 1200);
+            } catch(e) {
+                btn.disabled=false; btn.innerText='Retrain & Refresh Metrics';
+                alert('Training failed'); console.error(e);
+            }
+        }
+    </script>
 </head>
-<body class="p-5">
+<body class="p-4">
 <div class="container">
-    <h1 class="mb-4">Titanic Logistic Regression Settings</h1>
-    <form method="post">
-        <div class="card mb-4">
-            <div class="card-header">Model Hyperparameters</div>
-            <div class="card-body">
-                <div class="form-group">
-                    <label>Learning Rate (α)</label>
-                    <input type="number" step="0.0001" name="learning_rate" class="form-control" value="0.01" required>
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="mb-0">Titanic Survival Predictor</h1>
+        <div>
+            <a class="btn btn-outline-secondary mr-2" href="/compare">Compare Models</a>
+            <button id="retrain-btn" class="btn btn-primary" onclick="retrain()">Retrain & Refresh Metrics</button>
+        </div>
+    </div>
+
+    {% if best_model %}
+        <div class="alert alert-info">
+            <strong>Best model:</strong> {{ best_model }}
+            {% if dataset %}
+                <span class="ml-3">Dataset rows: {{ dataset.n_rows }}</span>
+                <span class="ml-3">Features: {{ dataset.n_features }}</span>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <div class="row">
+        <div class="col-lg-7">
+            <form onsubmit="submitPrediction(event)">
+                <div class="card mb-4">
+                    <div class="card-header">Passenger Features</div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="Pclass">Pclass</label>
+                                <select name="Pclass" id="Pclass" class="form-control">
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3" selected>3</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="Sex">Sex</label>
+                                <select name="Sex" id="Sex" class="form-control">
+                                    <option value="male">male</option>
+                                    <option value="female">female</option>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="Embarked">Embarked</label>
+                                <select name="Embarked" id="Embarked" class="form-control">
+                                    <option value="S">S</option>
+                                    <option value="C">C</option>
+                                    <option value="Q">Q</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-3">
+                                <label for="Age">Age</label>
+                                <input type="number" step="1" min="0" max="100" name="Age" id="Age" class="form-control" value="29">
+                            </div>
+                            <div class="form-group col-md-3">
+                                <label for="SibSp">SibSp</label>
+                                <input type="number" step="1" min="0" name="SibSp" id="SibSp" class="form-control" value="0">
+                            </div>
+                            <div class="form-group col-md-3">
+                                <label for="Parch">Parch</label>
+                                <input type="number" step="1" min="0" name="Parch" id="Parch" class="form-control" value="0">
+                            </div>
+                            <div class="form-group col-md-3">
+                                <label for="Fare">Fare</label>
+                                <input type="number" step="0.01" min="0" name="Fare" id="Fare" class="form-control" value="7.25">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success">Predict</button>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Iterations</label>
-                    <input type="number" name="num_iters" class="form-control" value="1000" required>
-                </div>
-                <div class="form-group form-check">
-                    <input type="checkbox" name="regularization" class="form-check-input" id="regCheck">
-                    <label class="form-check-label" for="regCheck">Use L2 Regularization</label>
-                </div>
-                <div class="form-group">
-                    <label>Lambda (λ)</label>
-                    <input type="number" step="0.001" min="0" name="lambda" class="form-control" value="1.0">
-                    <small class="form-text text-muted">You can use values like 0.001, 0.01, 0.1, etc.</small>
+            </form>
+            <div id="result-box" class="alert" hidden></div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">About</div>
+                <div class="card-body">
+                    <p>This simple UI lets you enter Titanic passenger features and get a survival score
+                        from the currently best-performing regression pipeline. Use Compare Models to see R²/MAE/RMSE and training times.</p>
                 </div>
             </div>
         </div>
-
-        <div class="card mb-4">
-            <div class="card-header">Validation Settings</div>
-            <div class="card-body">
-                <div class="form-group form-check">
-                    <input type="checkbox" name="use_kfolds" class="form-check-input" id="kfoldsCheck">
-                    <label class="form-check-label" for="kfoldsCheck">Use K-Fold Cross-Validation</label>
-                </div>
-                <div class="form-group">
-                    <label>Number of Folds</label>
-                    <input type="number" name="n_splits" class="form-control" value="5" min="2" max="10">
-                </div>
-            </div>
-        </div>
-
-        <div class="card mb-4">
-            <div class="card-header">Training Optimization</div>
-            <div class="card-body">
-                <div class="form-group form-check">
-                    <input type="checkbox" name="early_stopping" class="form-check-input" id="earlyStopCheck" checked>
-                    <label class="form-check-label" for="earlyStopCheck">Use Early Stopping</label>
-                </div>
-                <div class="form-group">
-                    <label>Patience (iterations without improvement)</label>
-                    <input type="number" name="patience" class="form-control" value="5" min="1">
-                </div>
-            </div>
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-lg">Train & Evaluate</button>
-    </form>
+    </div>
 </div>
 </body>
 </html>

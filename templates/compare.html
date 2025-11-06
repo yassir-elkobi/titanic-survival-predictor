@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Model Comparison — Titanic</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .badge-best { background-color: #28a745; }
+        .table-fixed { table-layout: fixed; }
+    </style>
+    <script>
+        async function retrain() {
+            const btn = document.getElementById('retrain-btn');
+            btn.disabled = true; btn.innerText = 'Training...';
+            try {
+                const res = await fetch('/train', {method: 'POST'});
+                if (res.ok) {
+                    location.reload();
+                } else {
+                    btn.disabled=false; btn.innerText='Retrain';
+                    alert('Training failed');
+                }
+            } catch (e) {
+                btn.disabled=false; btn.innerText='Retrain';
+                alert('Training failed'); console.error(e);
+            }
+        }
+    </script>
+</head>
+<body class="p-4">
+<div class="container">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="mb-0">Model Comparison</h1>
+        <div>
+            <a href="/" class="btn btn-outline-secondary mr-2">Home</a>
+            <button id="retrain-btn" class="btn btn-primary" onclick="retrain()">Retrain</button>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-12">
+            <div class="alert alert-info">
+                <strong>Dataset:</strong>
+                {{ metrics.dataset.path }} —
+                rows: {{ metrics.dataset.n_rows }},
+                features: {{ metrics.dataset.n_features }},
+                target: {{ metrics.dataset.target }}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Accuracy / Precision / Recall / F1 / AUC and Fit Time</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped mb-0 table-fixed">
+                    <thead class="thead-light">
+                    <tr>
+                        <th style="width: 22%">Model</th>
+                        <th style="width: 12%">Accuracy</th>
+                        <th style="width: 12%">Precision</th>
+                        <th style="width: 12%">Recall</th>
+                        <th style="width: 12%">F1</th>
+                        <th style="width: 12%">AUC</th>
+                        <th style="width: 14%">Fit Time (s)</th>
+                        <th style="width: 22%">Badge</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for name, rep in metrics.metrics.items() %}
+                        <tr>
+                            <td><code>{{ name }}</code></td>
+                            <td>{{ '%.4f'|format(rep.accuracy) }}</td>
+                            <td>{{ '%.4f'|format(rep.precision) }}</td>
+                            <td>{{ '%.4f'|format(rep.recall) }}</td>
+                            <td>{{ '%.4f'|format(rep.f1) }}</td>
+                            <td>{{ '%.4f'|format(rep.auc) }}</td>
+                            <td>{{ '%.3f'|format(rep.fit_time_s) }}</td>
+                            <td>
+                                {% if rep.best %}
+                                    <span class="badge badge-best">Best</span>
+                                {% endif %}
+                                {% if name == 'VotingClassifier' %}
+                                    <span class="badge badge-info">Ensemble</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <small class="text-muted">Best model by highest AUC (ties broken by highest F1).</small>
+    </div>
+</div>
+</body>
+</html>
+
